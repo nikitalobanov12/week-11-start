@@ -61,57 +61,55 @@ router.get('/pets', async (req, res) => {
 });
 
 router.get('/showPets', async (req, res) => {
-	console.log('page hit');
-	try {
-		let userId = req.query.id;
-		const user = await userModel.findByPk(userId);
-		if (user === null) {
-			res.render('error', { message: 'Error connecting to MySQL' });
-			console.log('Error connecting to userModel');
-		} else {
-			let pets = await user.getPets();
-			console.log(pets);
-			let owner = await pets[0].getOwner();
-			console.log(owner);
+    try {
+        console.log('Fetching pets for user');
+        const userId = req.query.id;
 
-			res.render('pets', { allPets: pets });
-		}
-	} catch (ex) {
-		res.render('error', { message: 'Error connecting to MySQL' });
-		console.log('Error connecting to MySQL');
-		console.log(ex);
-	}
+        if (!userId) {
+            return res.render('error', { message: 'User ID is required' });
+        }
+
+        const petCollection = database.db('lab_example').collection('pets');
+        const pets = await petCollection.find({ user_id: userId }).toArray();
+
+        if (!pets.length) {
+            return res.render('pets', { allPets: [], message: 'No pets found for this user' });
+        }
+
+        console.log(pets);
+        res.render('pets', { allPets: pets });
+    } catch (ex) {
+        console.log('Error fetching pets:', ex);
+        res.render('error', { message: 'Error fetching pets' });
+    }
 });
 
 router.get('/deleteUser', async (req, res) => {
 	try {
 		console.log('Deleting user');
-		console.log('Query parameters:', req.query);
+		const userId = req.query.id;
 
-		const userId = req.query.id; // Get userId from query params
 		if (!userId || userId.trim() === '') {
-			console.log('User ID is missing or empty');
 			return res.render('error', { message: 'User ID is required and cannot be empty' });
 		}
 
 		const userCollection = database.db('lab_example').collection('users');
-		console.log('Checking if user exists in MongoDB...');
-		const user = await userCollection.findOne({ _id: new ObjectId(userId) }); // Convert to ObjectId
-		if (!user) {
-			console.log('User not found in MongoDB');
+		const petCollection = database.db('lab_example').collection('pets');
+
+		console.log('Deleting associated pets...');
+		await petCollection.deleteMany({ user_id: userId });
+
+		console.log('Deleting user...');
+		const result = await userCollection.deleteOne({ _id: new ObjectId(userId) });
+
+		if (result.deletedCount === 0) {
 			return res.render('error', { message: 'User not found in MongoDB' });
 		}
-
-		console.log('Deleting associated pets in MySQL...');
-		await petModel.destroy({ where: { web_user_id: userId } });
-
-		console.log('Deleting user from MongoDB...');
-		await userCollection.deleteOne({ _id: new ObjectId(userId) }); // Convert to ObjectId
 
 		console.log(`User ${userId} and their pets deleted successfully`);
 		res.redirect('/');
 	} catch (ex) {
-		console.log('Error deleting user:', ex); // Log the exact error
+		console.log('Error deleting user:', ex);
 		res.render('error', { message: 'Error deleting user' });
 	}
 });
@@ -128,7 +126,6 @@ router.post('/addUser', async (req, res) => {
 
 		const { error, value } = schema.validate(req.body);
 		if (error) {
-			console.log('Validation error:', error.details[0].message);
 			return res.render('error', { message: 'Invalid input: ' + error.details[0].message });
 		}
 
@@ -147,9 +144,8 @@ router.post('/addUser', async (req, res) => {
 			password_hash: password_hash,
 		};
 
-		const result = await userCollection.insertOne(newUser);
-		console.log('User added successfully:', result.insertedId);
-
+		await userCollection.insertOne(newUser);
+		console.log('User added successfully');
 		res.redirect('/');
 	} catch (ex) {
 		console.log('Error adding user:', ex);
